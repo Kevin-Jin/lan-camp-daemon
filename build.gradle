@@ -42,6 +42,10 @@ install - install any jars produced to the local Maven repository (.m2)
 
  */
 
+repositories {
+  maven { url 'https://github.com/nathancomstock/maven-repo/raw/master/releases' }
+}
+
 dependencies {
   /*
   Add your module jar dependencies here
@@ -59,7 +63,13 @@ dependencies {
   provided "org.scala-lang:scala-library:$scalaVersion"
   provided "io.vertx:lang-scala:$scalaLangModVersion@jar"
 
-
+  compile "com.jetdrone:yoke:2.0.5"
+  compile "com.google.javascript:closure-compiler:v20140508"
+  //compile "com.google.template:soy:2012-12-21"
+  compile "nathancomstock.github:closure-templates:2014-04-22"
+  compile "org.lesscss:lesscss:1.7.0.1.1"
+  compile "dk.brics.automaton:automaton:1.11-8"
+  compile "org.mindrot:jbcrypt:0.3m"
 }
 
 test {

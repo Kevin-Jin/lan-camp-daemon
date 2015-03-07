@@ -1,0 +1,12 @@
+{namespace in.kevinj.lancamp.server}
+
+/**
+ * Introduction page to our service.
+ */
+{template .index autoescape="strict" kind="html"}
+{@param pagename: string} /** the page title */
+{@param routes: map<string, list<string>>} /** web pages */
+{call .base data="all"}{param layout kind="html"}
+	<h1>Hello world!</h1>
+{/param}{/call}
+{/template}
