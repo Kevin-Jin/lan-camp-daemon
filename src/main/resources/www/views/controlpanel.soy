@@ -1,0 +1,53 @@
+{namespace in.kevinj.lancamp.server}
+
+/**
+ */
+{template .controlpanel autoescape="strict" kind="html"}
+{@param pagename: string} /** the page title */
+{@param routes: map<string, list<string>>} /** web pages */
+{@param coords: string} /** initial map coordinates */
+{@param address: string} /** initial map address */
+{@param? error: string} /** errors to display above the prompt */
+{call .base data="all"}{param stylesheets kind="html"}{literal}
+<style>
+.inline {
+	display: inline-block;
+	margin: 0 5px;
+}
+
+.inline label {
+	display: block;
+}
+</style>
+{/literal}{/param}{param layout kind="html"}
+	<h1>Control Panel</h1>
+	<form method="post">
+	{if $error}<p>{$error}</p>{/if}
+	<h3>Change password</h3>
+	<div class="inline">
+	<label for="password">Current Password</label>
+	<input type="password" name="password" id="password" />
+	</div>
+	<div class="inline">
+	<label for="password">New Password</label>
+	<input type="password" name="password" id="password" />
+	</div>
+	<input type="submit" name="changepassword" value="Save" class="inline" />
+	</form>
+
+	<form method="post">
+	<h3>Change location</h3>
+	<div style="max-width: 640px; background: #FFF; padding: 3px; border-top: 1px solid #a9a9a9; border-bottom: 1px solid #a9a9a9; margin: 0 auto;">
+	<div style="display: table-cell; vertical-align: middle; width: 100%;">
+	<input type="text" name="address" value="{$address}" id="address" style="background: inherit; margin: 0; padding: 0; border: 0; width: 100%; height: 100%;" placeholder="Note: you will never be identifiable by your address">
+	</div>
+	<div style="display: table-cell; vertical-align: middle;">
+	<input type="submit" name="changelocation" value="Set location" style="float: right; margin: 0; height: 100%; padding-top: 5px; padding-bottom: 5px;">
+	</div>
+	<input id="latlng" name="latlng" value="{$coords}" type="hidden">
+	<input type="hidden" name="confirmed" value="{$address}" id="confirmed">
+	<div id="mapCanvas" style="overflow: hidden; background: url('//maps.google.com/maps/api/staticmap?center={$coords}&amp;zoom=14&amp;size=640x320&amp;sensor=false&amp;markers={$coords}'); background-position: center; background-repeat: no-repeat; height: 320px;"></div>
+	</div>
+	</form>
+{/param}{/call}
+{/template}

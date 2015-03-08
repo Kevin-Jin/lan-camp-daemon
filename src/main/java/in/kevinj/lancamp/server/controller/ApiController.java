@@ -25,10 +25,18 @@ public class ApiController {
 		String password = json.getString("password");
 		UserAuth.doLogin(vertx, container, req, username, password, error -> {
 			YokeResponse resp = req.response().setContentType("application/json", "utf-8");
-			if (error == null)
+			if (error.isEmpty())
 				resp.end(new JsonObject().putString("user", username));
 			else
 				resp.end(new JsonObject().putString("error", error));
 		});
+	}
+
+	public void update(YokeRequest req) {
+		if (UserAuth.getCurrentUserId(req) == -1) {
+			req.response().end(new JsonObject().putString("error", "Not logged in."));
+			return;
+		}
+		req.response().end(new JsonObject().putString("status", "ok"));
 	}
 }

@@ -354,12 +354,15 @@ public class UserAuth {
 							handler.handle("A hash error occurred and we are fixing it. Try again later.");
 							break;
 						case "ok":
+							int userId = !userIdResp.right.hasNext() ? 1 : userIdResp.right.next().getValue("seq");
 							DatabaseUtil.insert(vertx, "user",
 									(new JsonObject()
-										.putNumber("_id", !userIdResp.right.hasNext() ? 1 : userIdResp.right.next().getValue("seq"))
+										.putNumber("_id", userId)
 										.putString("username", email)
 										.putString("password", hashResp.result().body().getString("hashed"))
 									), failHandler, insertResp -> {
+								long passwordIteration = -1; //TODO: when user changes password, update this value
+								CookieUtil.setCookie(request, "auth_session", join("~", userId, passwordIteration, Long.valueOf(System.currentTimeMillis() + 12 * 60 * 60 * 1000)));
 								handler.handle("");
 							});
 							break;

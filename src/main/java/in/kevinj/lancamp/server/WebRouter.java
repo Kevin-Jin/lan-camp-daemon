@@ -41,7 +41,12 @@ public class WebRouter extends Verticle {
 		WebController$logoff						("GET",		"/user/unbind"),
 		WebController$loginPage						("GET",		"/user/bind"),
 		WebController$login							("POST",	"/user/bind"),
-		ApiController$login							("POST",	"/api/login")
+		WebController$registerPage					("GET",		"/user/new"),
+		WebController$register						("POST",	"/user/new"),
+		WebController$controlPanelPage				("GET",		"/user/edit"),
+		WebController$controlPanelSave				("POST",	"/user/edit"),
+		ApiController$login							("POST",	"/api/login"),
+		ApiController$update						("POST",	"/api/update")
 		;
 
 		public static final String WEB_ROOT = "";
@@ -143,8 +148,13 @@ public class WebRouter extends Verticle {
 			.get(Routes.WebController$index.pathPattern, c0::index)
 			.get(Routes.WebController$loginPage.pathPattern, c0::loginPage)
 			.post(Routes.WebController$login.pathPattern, c0::login)
+			.get(Routes.WebController$registerPage.pathPattern, c0::registerPage)
+			.post(Routes.WebController$register.pathPattern, c0::register)
+			.get(Routes.WebController$controlPanelPage.pathPattern, c0::controlPanelPage)
+			.post(Routes.WebController$controlPanelSave.pathPattern, c0::controlPanelSave)
 			.get(Routes.WebController$logoff.pathPattern, c0::logoff)
 			.post(Routes.ApiController$login.pathPattern, c1::login)
+			.post(Routes.ApiController$update.pathPattern, c1::update)
 		);
 		yoke.listen(PORT, "0.0.0.0");
 

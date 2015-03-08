@@ -23,15 +23,23 @@
 		{if $scripts}{$scripts}{/if}
 	</head>
 	<body>
-		<a href="{ $routes['WebController$index'][1] }">Home</a>
+		<div class="cover">
+		<div class="links">
+		<h1><a href="{ $routes['WebController$index'][1] }">LanCamp</a></h1><h3>Find your crowd</h3>
 		{if $user == -1}
-		<input type="text" placeholder="Username" />
-		<input type="text" placeholder="Password" />
+		<a href="{ $routes['WebController$loginPage'][1] }">Log in</a>
+		<a href="{ $routes['WebController$registerPage'][1] }">Register</a>
 		{else}
-		<a href="{ $routes['WebController$logoff'][1] }" class="button">Log off</a>
+		<a href="{ $routes['WebController$logoff'][1] }">Log off</a>
+		<a href="{ $routes['WebController$controlPanelPage'][1] }">Control Panel</a>
 		{/if}
-		<div>
+		</div>
+		</div>
+		<div class="content">
 		{$layout}
+		</div>
+		<div class="footer">
+		Kevin Jin
 		</div>
 	</body>
 </html>

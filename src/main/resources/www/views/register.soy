@@ -2,7 +2,7 @@
 
 /**
  */
-{template .login autoescape="strict" kind="html"}
+{template .register autoescape="strict" kind="html"}
 {@param pagename: string} /** the page title */
 {@param routes: map<string, list<string>>} /** web pages */
 {@param? error: string} /** errors to display above the prompt */
@@ -18,7 +18,7 @@
 }
 </style>
 {/literal}{/param}{param layout kind="html"}
-	<h1>Login</h1>
+	<h1>Register</h1>
 	<form method="post">
 	{if $error}<p>{$error}</p>{/if}
 	<div class="inline">
@@ -29,7 +29,7 @@
 	<label for="password">Password</label>
 	<input type="password" name="password" id="password" />
 	</div>
-	<input type="submit" value="Login" class="inline" />
+	<input type="submit" value="Register" class="inline" />
 	</form>
 {/param}{/call}
 {/template}
