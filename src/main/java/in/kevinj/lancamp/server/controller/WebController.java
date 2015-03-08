@@ -23,8 +23,53 @@ public class WebController {
 	}
 
 	public void index(YokeRequest req) {
-		req.put("pagename", "LanCamp");
-		req.response().render("in.kevinj.lancamp.server.index.soy");
+		JsonArray markers = new JsonArray();
+		JsonArray stats = new JsonArray();
+		markers.addString("40.8131995,-73.957643");
+		stats.addString("Your current location<br>Number of java developers within 1 mile: 0");
+		DatabaseUtil.find(vertx, "user",
+				(new JsonObject()), (new JsonObject()
+					.putNumber("location", 1)
+					.putNumber("apps", 1)
+				), error -> {
+			container.logger().warn("Could not get user info", error);
+			req.put("error", error.getMessage());
+			req.response().render("in.kevinj.lancamp.server.controlpanel.soy");
+		}, queryResp -> {
+			String lat = "", lng = "";
+			while (queryResp.right.hasNext()) {
+				JsonObject point = queryResp.right.next().getValue("location");
+				if (point != null && point.getString("type").equals("Point")) {
+					JsonArray coordinates = point.getArray("coordinates");
+					lat = coordinates.get(0).toString();
+					lng = coordinates.get(1).toString();
+					markers.addString(lat + "," + lng);
+					JsonArray apps = queryResp.right.getValue("apps");
+					if (apps == null) apps = new JsonArray();
+					int totalClicks = 0, totalKeys = 0, totalTime = 0;
+					String mostActiveApp = "N/A";
+					int mostActiveAppVal = 0;
+					for (int i = 0; i < apps.size(); i++) {
+						JsonObject app = apps.get(i);
+						if (app.getNumber("clicks") != null)
+							totalClicks += app.getNumber("clicks").intValue();
+						if (app.getNumber("keys") != null)
+							totalKeys += app.getNumber("keys").intValue();
+						if (app.getNumber("time") != null)
+							totalTime += app.getNumber("time").intValue();
+						if (app.getNumber("clicks") != null && app.getNumber("keys") != null && app.getNumber("clicks").intValue() + app.getNumber("keys").intValue() > mostActiveAppVal) {
+							mostActiveApp = app.getString("app");
+							mostActiveAppVal = app.getNumber("clicks").intValue() + app.getNumber("keys").intValue();
+						}
+					}
+					stats.addString("Most active application: " + mostActiveApp + "<br>Total clicks: " + totalClicks + "<br>Total keystrokes: " + totalKeys + "<br>Total seconds active: " + totalTime + "<br>Total network usage: N/A");
+				}
+			}
+			req.put("markers", markers.toString());
+			req.put("pagename", "LanCamp");
+			req.put("stats", stats.toString());
+			req.response().render("in.kevinj.lancamp.server.index.soy");
+		});
 	}
 
 	public void loginPage(YokeRequest req) {

@@ -36,6 +36,10 @@ body {
 	position: relative;
 }
 
+.links>h1 {
+	font-family: "Book Antiqua","Palatino Linotype","Palatino","URW Palladio L",serif;
+}
+
 .links>h1, .links>h3, .links>a {
 	display: inline-block;
 	margin: 0;
