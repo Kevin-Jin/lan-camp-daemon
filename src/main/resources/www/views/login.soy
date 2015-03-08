@@ -1,0 +1,18 @@
+{namespace in.kevinj.lancamp.server}
+
+/**
+ */
+{template .login autoescape="strict" kind="html"}
+{@param pagename: string} /** the page title */
+{@param routes: map<string, list<string>>} /** web pages */
+{@param? error: string} /** errors to display above the prompt */
+{call .base data="all"}{param layout kind="html"}
+	<h1>Login</h1>
+	<form method="post">
+	{if $error}<p>{$error}</p>{/if}
+	<input type="text" name="username" />
+	<input type="password" name="password" />
+	<input type="submit" value="Login" />
+	</form>
+{/param}{/call}
+{/template}

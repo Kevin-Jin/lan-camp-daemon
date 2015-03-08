@@ -17,40 +17,45 @@ import org.vertx.java.core.json.JsonObject;
 public class DatabaseUtil {
 	public static class QueryResult implements Iterable<JsonArray> {
 		private final JsonObject base;
-		private Iterator<Object> iterator;
-		private JsonArray cursor;
+		private Iterator<?> iterator;
+		private JsonObject cursor;
 
 		public QueryResult(JsonObject base) {
 			this.base = base;
-			this.iterator = base.containsField("results") ? base.getArray("results").iterator() : Collections.emptyIterator();
+			if (base.containsField("results"))
+				this.iterator = base.getArray("results").iterator();
+			else if (base.containsField("result"))
+				this.iterator = Collections.singleton(base.getObject("result")).iterator();
+			else
+				this.iterator = Collections.emptyIterator();
 		}
 
 		public int affectedRows() {
 			return base.getNumber("rows").intValue();
 		}
 
-		public <T> T getValue(int index) {
-			return cursor.get(index);
+		public <T> T getValue(String key) {
+			return cursor.getValue(key);
 		}
 
-		public int getInt(int index) {
-			return this.<Number>getValue(index).intValue();
+		public int getInt(String key) {
+			return this.<Number>getValue(key).intValue();
 		}
 
-		public long getLong(int index) {
-			return this.<Number>getValue(index).longValue();
+		public long getLong(String key) {
+			return this.<Number>getValue(key).longValue();
 		}
 
-		public double getDouble(int index) {
-			return this.<Number>getValue(index).doubleValue();
+		public double getDouble(String key) {
+			return this.<Number>getValue(key).doubleValue();
 		}
 
-		public float getFloat(int index) {
-			return this.<Number>getValue(index).floatValue();
+		public float getFloat(String key) {
+			return this.<Number>getValue(key).floatValue();
 		}
 
-		public boolean getBoolean(int index) {
-			return this.<Boolean>getValue(index).booleanValue();
+		public boolean getBoolean(String key) {
+			return this.<Boolean>getValue(key).booleanValue();
 		}
 
 		public boolean hasNext() {
@@ -59,7 +64,7 @@ public class DatabaseUtil {
 
 		public QueryResult next() {
 			if (iterator.hasNext())
-				cursor = (JsonArray) iterator.next();
+				cursor = (JsonObject) iterator.next();
 			else
 				cursor = null;
 			return this;
@@ -92,104 +97,90 @@ public class DatabaseUtil {
 		}
 	}
 
-	private static <T> void onGeneratedKeyResult(AsyncResult<Message<JsonObject>> dbResp, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, T>> success) {
-		if (dbResp.failed()) {
-			failure.handle(new Throwable("operation timed out", dbResp.cause()));
-			return;
-		}
-		switch (dbResp.result().body().getString("status")) {
-			default:
-				if (dbResp.result().body().containsField("exception"))
-					failure.handle(new Throwable(dbResp.result().body().getString("message") + "\n" + dbResp.result().body().getString("exception")));
-				else
-					failure.handle(new Throwable(dbResp.result().body().getString("message")));
-				break;
-			case "ok":
-				if (dbResp.result().body().getNumber("rows").intValue() == 0)
-					failure.handle(new Throwable("no rows"));
-				else
-					success.handle(new Pair<>(dbResp.result(), dbResp.result().body().getArray("results").<JsonArray>get(0).<T>get(0)));
-				break;
-		}
-	}
-
-	private static JsonObject makeBeginTransactionQuery() {
-		return new JsonObject().putString("action", "begin");
-	}
-
-	public static void beginTransaction(Vertx vertx, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void insert(Vertx vertx, String collection, JsonObject value, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
-			makeBeginTransactionQuery(),
+			(new JsonObject()
+				.putString("action", "save")
+				.putString("collection", collection)
+				.putObject("document", value)
+			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static void beginTransaction(Message<?> replyTo, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
-		replyTo.<JsonObject>replyWithTimeout(
-			makeBeginTransactionQuery(),
-			UserAuth.EBUS_TIMEOUT,
-			dbResp -> onSimpleResult(dbResp, failure, success)
-		);
-	}
-
-	private static JsonObject makeEndTransactionQuery() {
-		return new JsonObject().putString("action", "commit");
-	}
-
-	public static void endTransaction(Vertx vertx, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void find(Vertx vertx, String collection, JsonObject query, JsonObject fields, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
-			makeEndTransactionQuery(),
+			(new JsonObject()
+				.putString("action", "find")
+				.putString("collection", collection)
+				.putObject("matcher", query)
+				.putObject("keys", fields)
+			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static void endTransaction(Message<?> replyTo, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
-		replyTo.<JsonObject>replyWithTimeout(
-			makeEndTransactionQuery(),
-			UserAuth.EBUS_TIMEOUT,
-			dbResp -> onSimpleResult(dbResp, failure, success)
-		);
-	}
-
-	private static JsonObject makePreparedStatementQuery(String statement, JsonArray value) {
-		return new JsonObject().putString("action", "prepared").putString("statement", statement).putArray("values", value);
-	}
-
-	public static void preparedStatement(Vertx vertx, String statement, JsonArray value, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void update(Vertx vertx, String collection, JsonObject query, JsonObject objNew, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
-			makePreparedStatementQuery(statement, value),
+			(new JsonObject()
+				.putString("action", "update")
+				.putString("collection", collection)
+				.putObject("criteria", query)
+				.putObject("objNew", objNew)
+			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static void preparedStatement(Message<?> replyTo, String statement, JsonArray value, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
-		replyTo.<JsonObject>replyWithTimeout(
-			makePreparedStatementQuery(statement, value),
-			UserAuth.EBUS_TIMEOUT,
-			dbResp -> onSimpleResult(dbResp, failure, success)
-		);
-	}
-
-	private static JsonObject makeGetGeneratedKeyQuery() {
-		return new JsonObject().putString("action", "raw").putString("command", "SELECT LAST_INSERT_ID()");
-	}
-
-	public static <T> void getGeneratedKey(Vertx vertx, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, T>> success) {
+	public static void remove(Vertx vertx, String collection, JsonObject query, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
-			makeGetGeneratedKeyQuery(),
+			(new JsonObject()
+				.putString("action", "delete")
+				.putString("collection", collection)
+				.putObject("matcher", query)
+			),
 			UserAuth.EBUS_TIMEOUT,
-			dbResp -> onGeneratedKeyResult(dbResp, failure, success)
+			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static <T> void getGeneratedKey(Message<?> replyTo, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, T>> success) {
-		replyTo.<JsonObject>replyWithTimeout(
-			makeGetGeneratedKeyQuery(),
+	public static void findAndModify(Vertx vertx, String collection, JsonObject query, JsonObject objNew, JsonObject fields, boolean upsert, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
+			(new JsonObject()
+				.putString("action", "find_and_modify")
+				.putString("collection", collection)
+				.putObject("matcher", query)
+				.putObject("fields", fields)
+				.putObject("update", objNew)
+				.putBoolean("upsert", upsert)
+			),
 			UserAuth.EBUS_TIMEOUT,
-			dbResp -> onGeneratedKeyResult(dbResp, failure, success)
+			dbResp -> onSimpleResult(dbResp, failure, success)
+		);
+	}
+
+	public static void ensureIndex(Vertx vertx, String collection, String name, boolean unique, JsonObject fields, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
+			(new JsonObject()
+				.putString("action", "command")
+				.putString("command", /*new JsonObject()
+					.putString("createIndexes", collection)
+					.putArray("indexes", new JsonArray()
+						.addObject(new JsonObject()
+							.putObject("key", fields)
+							.putString("name", name)
+							.putBoolean("unique", unique)
+						)
+					).toString()*/ new JsonObject()
+					.putString("eval", "function() { return db." + collection + ".ensureIndex(" + fields.encode() + ",{ \"unique\": " + unique + " }) }")
+					.toString()
+				)
+			),
+			UserAuth.EBUS_TIMEOUT,
+			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 }

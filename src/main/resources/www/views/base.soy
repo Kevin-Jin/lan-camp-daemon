@@ -23,12 +23,12 @@
 		{if $scripts}{$scripts}{/if}
 	</head>
 	<body>
-		<a href="{ $routes['IndexController$index'][1] }">Home</a>
+		<a href="{ $routes['WebController$index'][1] }">Home</a>
 		{if $user == -1}
 		<input type="text" placeholder="Username" />
 		<input type="text" placeholder="Password" />
 		{else}
-		<a href="{ $routes['IndexController$logoff'][1] }" class="button">Log off</a>
+		<a href="{ $routes['WebController$logoff'][1] }" class="button">Log off</a>
 		{/if}
 		<div>
 		{$layout}

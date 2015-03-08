@@ -2,7 +2,7 @@
 
   // Java verticle
   "main":"in.kevinj.lancamp.server.Boot",
-  "includes":"com.jetdrone~yoke~2.0.5",
+  "includes":"com.jetdrone~yoke~2.0.5,io.vertx~mod-mongo-persistor~2.1.1-SNAPSHOT",
 
   "preserve-cwd": false,
   "auto-redeploy": true

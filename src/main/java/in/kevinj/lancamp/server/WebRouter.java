@@ -1,8 +1,9 @@
 package in.kevinj.lancamp.server;
 
-import in.kevinj.lancamp.server.controller.AuthenticationController;
-import in.kevinj.lancamp.server.controller.IndexController;
+import in.kevinj.lancamp.server.controller.ApiController;
+import in.kevinj.lancamp.server.controller.WebController;
 import in.kevinj.lancamp.server.support.CookieUtil;
+import in.kevinj.lancamp.server.support.DatabaseUtil;
 import in.kevinj.lancamp.server.support.UserAuth;
 import in.kevinj.lancamp.server.templating.AssetHandler;
 import in.kevinj.lancamp.server.templating.ClosureTemplateEngine;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.platform.Verticle;
 
 import com.jetdrone.vertx.yoke.Middleware;
@@ -35,9 +37,11 @@ import dk.brics.automaton.RegExp;
 
 public class WebRouter extends Verticle {
 	public enum Routes {
-		IndexController$index						("GET",		"/"),
-		IndexController$logoff						("GET",		"/user/unbind"),
-		AuthenticationController$login				("GET",		"/buyer/user/bind")
+		WebController$index							("GET",		"/"),
+		WebController$logoff						("GET",		"/user/unbind"),
+		WebController$loginPage						("GET",		"/user/bind"),
+		WebController$login							("POST",	"/user/bind"),
+		ApiController$login							("POST",	"/api/login")
 		;
 
 		public static final String WEB_ROOT = "";
@@ -96,10 +100,8 @@ public class WebRouter extends Verticle {
 	public void start() {
 		String instanceId = container.config().getString("instanceId");
 
-		IndexController c0 = new IndexController(vertx, container);
-		AuthenticationController c1 = new AuthenticationController(vertx, container);
-		//IndividualBuyerController c2 = new IndividualBuyerController(vertx, container);
-		//IndividualSellerController c3 = new IndividualSellerController(vertx, container);
+		WebController c0 = new WebController(vertx, container);
+		ApiController c1 = new ApiController(vertx, container);
 		Yoke yoke = new Yoke(this);
 		yoke.engine(new ClosureTemplateEngine(container.logger(), "./www/views"));
 		yoke.engine(new YokeMarkupTemplateEngine(container.logger(), "./www/views"));
@@ -138,11 +140,27 @@ public class WebRouter extends Verticle {
 			}
 		});
 		yoke.use(new Router()
-			.get(Routes.IndexController$index.pathPattern, c0::index)
-			.get(Routes.AuthenticationController$login.pathPattern, c1::loginPage)
-			.post(Routes.AuthenticationController$login.pathPattern, c1::login)
-			.all(Routes.IndexController$logoff.pathPattern, c0::logoff)
+			.get(Routes.WebController$index.pathPattern, c0::index)
+			.get(Routes.WebController$loginPage.pathPattern, c0::loginPage)
+			.post(Routes.WebController$login.pathPattern, c0::login)
+			.get(Routes.WebController$logoff.pathPattern, c0::logoff)
+			.post(Routes.ApiController$login.pathPattern, c1::login)
 		);
 		yoke.listen(PORT, "0.0.0.0");
+
+		DatabaseUtil.ensureIndex(vertx, "user", "username", true, new JsonObject().putNumber("username", 1), failure -> {
+			Throwable cause = failure.getCause();
+			if (cause == null)
+				container.logger().warn("Could not initialize user collection, database error: " + failure.getMessage());
+			else
+				container.logger().warn("Could not initialize user collection, database error: " + failure.getMessage(), cause);
+		}, success -> {
+			JsonObject retVal = success.left.body().getObject("result").getObject("retVal");
+			if (retVal != null) {
+				container.logger().warn("Could not initialize user collection, database error: " + retVal.getString("err"));
+			} else if (success.left.body().getObject("result").getString("errmsg") != null) {
+				container.logger().warn("Could not initialize user collection, database error: " + success.left.body().getObject("result").getString("errmsg"));
+			}
+		});
 	}
 }

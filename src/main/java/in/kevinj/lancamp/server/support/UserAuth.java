@@ -105,20 +105,25 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.beginTransaction(vertx, failHandler, beginResp -> {
-			DatabaseUtil.preparedStatement(beginResp.left, "INSERT INTO `persistentlogin` (`accountid`,`tokenhash`,`expiretime`) VALUES (?,?,?)", new JsonArray().add(userId).add(sign(newToken)).add(Long.valueOf(expireTime)), failHandler, insertResp -> {
-				DatabaseUtil.getGeneratedKey(insertResp.left, failHandler, uidResp -> {
-					DatabaseUtil.endTransaction(uidResp.left, failHandler, endResp -> {
-						//make sure we update other usages of the auth cookie if we change the parameters that are joined
-						YokeCookie cookie = new YokeCookie("auth_persistent", CookieUtil.COOKIE_SIGNER);
-						cookie.setMaxAge(CookieUtil.COOKIE_EXPIRE_INTERVAL_IN_SECONDS);
-						cookie.setPath("/");
-						cookie.setValue(join("~", uidResp.right.toString(), newToken));
-						CookieUtil.setCookie(request, cookie);
-						handler.handle("");
-					});
-				});
-			});
+		String persistentLoginId = UUID.randomUUID().toString();
+		DatabaseUtil.update(vertx, "user",
+				(new JsonObject()
+					.putNumber("_id", userId)
+				), (new JsonObject()
+					.putObject("$set", new JsonObject()
+						.putObject("login", new JsonObject()
+							.putString("_id", persistentLoginId)
+							.putString("tokenhash", newToken)
+							.putNumber("expiretime", expireTime)
+						)
+					)
+				), failHandler, updateResp -> {
+			YokeCookie cookie = new YokeCookie("auth_persistent", CookieUtil.COOKIE_SIGNER);
+			cookie.setMaxAge(CookieUtil.COOKIE_EXPIRE_INTERVAL_IN_SECONDS);
+			cookie.setPath("/");
+			cookie.setValue(join("~", persistentLoginId, newToken));
+			CookieUtil.setCookie(request, cookie);
+			handler.handle("");
 		});
 	}
 
@@ -175,14 +180,21 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.preparedStatement(vertx, "SELECT `accountid`,`tokenhash`,`expiretime` FROM `persistentlogin` WHERE `uniqueid` = ?", new JsonArray().add(Integer.valueOf(uniqueId)), failHandler, queryResp -> {
-			if (!queryResp.right.hasNext() || !matchSign(queryResp.right.next().getValue(1), token) || queryResp.right.getLong(2) <= System.currentTimeMillis()) {
+		DatabaseUtil.find(vertx, "user",
+				(new JsonObject()
+					.putNumber("login._id", uniqueId)
+				), (new JsonObject()
+					.putNumber("_id", 1)
+					.putNumber("login.tokenhash", 1)
+					.putNumber("login.expiretime", 1)
+				), failHandler, queryResp -> {
+			if (!queryResp.right.hasNext() || !matchSign(queryResp.right.next().getValue("login._id"), token) || queryResp.right.getLong("login.expiretime") <= System.currentTimeMillis()) {
 				//invalid persistent login cookie
 				deletePersistentLoginCookie(vertx, container, request, true, handler);
 				return;
 			}
 			long passwordIteration = -1; //TODO: when user changes password, update this value
-			CookieUtil.setCookie(request, "auth_session", join("~", queryResp.right.getValue(0), passwordIteration, Long.valueOf(System.currentTimeMillis() + SESSION_LENGTH)));
+			CookieUtil.setCookie(request, "auth_session", join("~", queryResp.right.getValue("_id"), passwordIteration, Long.valueOf(System.currentTimeMillis() + SESSION_LENGTH)));
 			//set a new auth cookie so that if the old auth cookie sniffed and stolen, it will be invalid,
 			//minimizing the impact of sniffed cookies
 			deletePersistentLoginCookie(vertx, container, request, false, status -> {
@@ -227,13 +239,43 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.preparedStatement(vertx, "DELETE FROM `persistentlogin` WHERE `uniqueid` = ? OR (`accountid` = ? AND `expiretime` <= ?)", new JsonArray().add(Integer.valueOf(uniqueId)).add(Integer.valueOf(getCurrentUserId(request))).add(Long.valueOf(System.currentTimeMillis())), failHandler, delResp -> {
+		DatabaseUtil.update(vertx, "user",
+				(new JsonObject()
+					.putArray("or", new JsonArray()
+						.addObject(new JsonObject()
+							.putNumber("login._id", uniqueId)
+						)
+						.addObject(new JsonObject()
+							.putArray("and", new JsonArray()
+								.addObject(new JsonObject()
+									.putNumber("_id", getCurrentUserId(request))
+								)
+								.addObject(new JsonObject()
+									.putObject("login.expiretime", new JsonObject()
+										.putNumber("$lte", System.currentTimeMillis())
+									)
+								)
+							)
+						)
+					)
+				),
+				(new JsonObject()
+					.putObject("$set", new JsonObject()
+						.putObject("login", null)
+					)
+				), failHandler, updateResp -> {
 			handler.handle("");
 		});
 	}
 
 	public static void doLogin(Vertx vertx, Container container, YokeRequest request, String email, String password, Handler<String> handler) {
-		DatabaseUtil.preparedStatement(vertx, "SELECT `id`, `organization`, `password` FROM `accounts` WHERE `email` = ?", new JsonArray().add(email), failure -> {
+		DatabaseUtil.find(vertx, "user",
+				(new JsonObject()
+					.putString("username", email)
+				), (new JsonObject()
+					.putNumber("_id", 1)
+					.putNumber("password", 1)
+				), failure -> {
 			Throwable cause = failure.getCause();
 			if (cause == null)
 				container.logger().warn("Could not login account, database error: " + failure.getMessage());
@@ -245,7 +287,7 @@ public class UserAuth {
 				handler.handle("The username or password is incorrect. Try again.");
 				return;
 			}
-			String hash = queryResp.right.next().getValue(2);
+			String hash = queryResp.right.next().getValue("password");
 			vertx.eventBus().<JsonObject>sendWithTimeout(Boot.BC_HANDLE + ".check", new JsonObject()
 				.putString("plaintext", password)
 				.putString("hashed", hash),
@@ -268,7 +310,7 @@ public class UserAuth {
 							}
 							//empty string signals successful login
 							long passwordIteration = -1; //TODO: when user changes password, update this value
-							CookieUtil.setCookie(request, "auth_session", join("~", queryResp.right.getValue(0), passwordIteration, Long.valueOf(System.currentTimeMillis() + 12 * 60 * 60 * 1000)));
+							CookieUtil.setCookie(request, "auth_session", join("~", queryResp.right.getValue("_id"), passwordIteration, Long.valueOf(System.currentTimeMillis() + 12 * 60 * 60 * 1000)));
 							handler.handle("");
 							break;
 					}
@@ -277,8 +319,54 @@ public class UserAuth {
 		});
 	}
 
-	public static void doRegister(Vertx vertx, Container container, YokeRequest request, Handler<String> handler) {
-		//TODO: implement
+	public static void doRegister(Vertx vertx, Container container, YokeRequest request, String email, String password, Handler<String> handler) {
+		Handler<Throwable> failHandler = failure -> {
+			Throwable cause = failure.getCause();
+			if (cause == null)
+				container.logger().warn("Could not register user, database error: " + failure.getMessage());
+			else
+				container.logger().warn("Could not register user, database error: " + failure.getMessage(), cause);
+			handler.handle("A database error occurred and we are fixing it. Try again later.");
+		};
+
+		DatabaseUtil.findAndModify(vertx, "userid", new JsonObject().putString("_id", "1"),
+				(new JsonObject()
+					.putObject("$inc", new JsonObject()
+						.putNumber("seq", 1)
+					)
+				), (new JsonObject()
+					.putNumber("seq", 1)
+				), true, failHandler, userIdResp -> {
+			vertx.eventBus().<JsonObject>sendWithTimeout(Boot.BC_HANDLE + ".hash",
+					(new JsonObject()
+						.putString("plaintext", password)
+					),
+				EBUS_TIMEOUT,
+				hashResp -> {
+					if (hashResp.failed()) {
+						container.logger().warn("Could not create account, passhash operation timed out", hashResp.cause());
+						handler.handle("A hash error occurred and we are fixing it. Try again later.");
+						return;
+					}
+					switch (hashResp.result().body().getString("status")) {
+						default:
+							container.logger().warn("Could not create account, passhash error: " + hashResp.result().body().getString("message"));
+							handler.handle("A hash error occurred and we are fixing it. Try again later.");
+							break;
+						case "ok":
+							DatabaseUtil.insert(vertx, "user",
+									(new JsonObject()
+										.putNumber("_id", !userIdResp.right.hasNext() ? 1 : userIdResp.right.next().getValue("seq"))
+										.putString("username", email)
+										.putString("password", hashResp.result().body().getString("hashed"))
+									), failHandler, insertResp -> {
+								handler.handle("");
+							});
+							break;
+					}
+				}
+			);
+		});
 	}
 
 	public static void doLogoff(Vertx vertx, Container container, YokeRequest request, Handler<String> handler) {
@@ -312,7 +400,14 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.preparedStatement(vertx, "DELETE FROM `persistentlogin` WHERE `accountid` = ?", new JsonArray().add(Integer.valueOf(accountId)), failHandler, delResp -> {
+		DatabaseUtil.update(vertx, "user",
+				(new JsonObject()
+					.putNumber("_id", accountId)
+				), (new JsonObject()
+					.putObject("$set", new JsonObject()
+						.putObject("login", null)
+					)
+				), failHandler, updateResp -> {
 			handler.handle("");
 		});
 	}
