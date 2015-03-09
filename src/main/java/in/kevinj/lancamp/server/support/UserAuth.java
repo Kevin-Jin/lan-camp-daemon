@@ -106,18 +106,19 @@ public class UserAuth {
 		};
 
 		String persistentLoginId = UUID.randomUUID().toString();
-		DatabaseUtil.update(vertx, "user",
-				(new JsonObject()
-					.putNumber("_id", userId)
-				), (new JsonObject()
-					.putObject("$set", new JsonObject()
-						.putObject("login", new JsonObject()
-							.putString("_id", persistentLoginId)
-							.putString("tokenhash", newToken)
-							.putNumber("expiretime", expireTime)
-						)
-					)
-				), failHandler, updateResp -> {
+		JsonObject query = new JsonObject()
+			.putNumber("_id", userId)
+		;
+		JsonObject changes = new JsonObject()
+			.putObject("$set", new JsonObject()
+				.putObject("login", new JsonObject()
+					.putString("_id", persistentLoginId)
+					.putString("tokenhash", newToken)
+					.putNumber("expiretime", expireTime)
+				)
+			)
+		;
+		DatabaseUtil.update(vertx, "user", query, changes, failHandler, updateResp -> {
 			YokeCookie cookie = new YokeCookie("auth_persistent", CookieUtil.COOKIE_SIGNER);
 			cookie.setMaxAge(CookieUtil.COOKIE_EXPIRE_INTERVAL_IN_SECONDS);
 			cookie.setPath("/");
@@ -180,14 +181,15 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.find(vertx, "user",
-				(new JsonObject()
-					.putNumber("login._id", uniqueId)
-				), (new JsonObject()
-					.putNumber("_id", 1)
-					.putNumber("login.tokenhash", 1)
-					.putNumber("login.expiretime", 1)
-				), failHandler, queryResp -> {
+		JsonObject query = new JsonObject()
+			.putNumber("login._id", uniqueId)
+		;
+		JsonObject fields = new JsonObject()
+			.putNumber("_id", 1)
+			.putNumber("login.tokenhash", 1)
+			.putNumber("login.expiretime", 1)
+		;
+		DatabaseUtil.find(vertx, "user", query, fields, failHandler, queryResp -> {
 			if (!queryResp.right.hasNext() || !matchSign(queryResp.right.next().getValue("login._id"), token) || queryResp.right.getLong("login.expiretime") <= System.currentTimeMillis()) {
 				//invalid persistent login cookie
 				deletePersistentLoginCookie(vertx, container, request, true, handler);
@@ -239,43 +241,44 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.update(vertx, "user",
-				(new JsonObject()
-					.putArray("or", new JsonArray()
+		JsonObject query = new JsonObject()
+			.putArray("or", new JsonArray()
+				.addObject(new JsonObject()
+					.putNumber("login._id", uniqueId)
+				)
+				.addObject(new JsonObject()
+					.putArray("and", new JsonArray()
 						.addObject(new JsonObject()
-							.putNumber("login._id", uniqueId)
+							.putNumber("_id", getCurrentUserId(request))
 						)
 						.addObject(new JsonObject()
-							.putArray("and", new JsonArray()
-								.addObject(new JsonObject()
-									.putNumber("_id", getCurrentUserId(request))
-								)
-								.addObject(new JsonObject()
-									.putObject("login.expiretime", new JsonObject()
-										.putNumber("$lte", System.currentTimeMillis())
-									)
-								)
+							.putObject("login.expiretime", new JsonObject()
+								.putNumber("$lte", System.currentTimeMillis())
 							)
 						)
 					)
-				),
-				(new JsonObject()
-					.putObject("$set", new JsonObject()
-						.putObject("login", null)
-					)
-				), failHandler, updateResp -> {
+				)
+			)
+		;
+		JsonObject changes = new JsonObject()
+			.putObject("$set", new JsonObject()
+				.putObject("login", null)
+			)
+		;
+		DatabaseUtil.update(vertx, "user", query, changes, failHandler, updateResp -> {
 			handler.handle("");
 		});
 	}
 
 	public static void doLogin(Vertx vertx, Container container, YokeRequest request, String email, String password, Handler<String> handler) {
-		DatabaseUtil.find(vertx, "user",
-				(new JsonObject()
-					.putString("username", email)
-				), (new JsonObject()
-					.putNumber("_id", 1)
-					.putNumber("password", 1)
-				), failure -> {
+		JsonObject query = new JsonObject()
+			.putString("username", email)
+		;
+		JsonObject fields = (new JsonObject()
+			.putNumber("_id", 1)
+			.putNumber("password", 1)
+		);
+		DatabaseUtil.find(vertx, "user", query, fields, failure -> {
 			Throwable cause = failure.getCause();
 			if (cause == null)
 				container.logger().warn("Could not login account, database error: " + failure.getMessage());
@@ -329,46 +332,45 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.findAndModify(vertx, "userid", new JsonObject().putString("_id", "1"),
-				(new JsonObject()
-					.putObject("$inc", new JsonObject()
-						.putNumber("seq", 1)
-					)
-				), (new JsonObject()
-					.putNumber("seq", 1)
-				), true, failHandler, userIdResp -> {
-			vertx.eventBus().<JsonObject>sendWithTimeout(Boot.BC_HANDLE + ".hash",
-					(new JsonObject()
-						.putString("plaintext", password)
-					),
-				EBUS_TIMEOUT,
-				hashResp -> {
-					if (hashResp.failed()) {
-						container.logger().warn("Could not create account, passhash operation timed out", hashResp.cause());
-						handler.handle("A hash error occurred and we are fixing it. Try again later.");
-						return;
-					}
-					switch (hashResp.result().body().getString("status")) {
-						default:
-							container.logger().warn("Could not create account, passhash error: " + hashResp.result().body().getString("message"));
-							handler.handle("A hash error occurred and we are fixing it. Try again later.");
-							break;
-						case "ok":
-							int userId = !userIdResp.right.hasNext() ? 1 : userIdResp.right.next().getValue("seq");
-							DatabaseUtil.insert(vertx, "user",
-									(new JsonObject()
-										.putNumber("_id", userId)
-										.putString("username", email)
-										.putString("password", hashResp.result().body().getString("hashed"))
-									), failHandler, insertResp -> {
-								long passwordIteration = -1; //TODO: when user changes password, update this value
-								CookieUtil.setCookie(request, "auth_session", join("~", userId, passwordIteration, Long.valueOf(System.currentTimeMillis() + 12 * 60 * 60 * 1000)));
-								handler.handle("");
-							});
-							break;
-					}
+		JsonObject query = new JsonObject()
+			.putString("_id", "1")
+		;
+		JsonObject changes = new JsonObject()
+			.putObject("$inc", new JsonObject()
+				.putNumber("seq", 1)
+			)
+		;
+		JsonObject fields = new JsonObject()
+			.putNumber("seq", 1)
+		;
+		DatabaseUtil.findAndModify(vertx, "userid", query, changes, fields, true, failHandler, userIdResp -> {
+			JsonObject params = new JsonObject().putString("plaintext", password);
+			vertx.eventBus().<JsonObject>sendWithTimeout(Boot.BC_HANDLE + ".hash", params, EBUS_TIMEOUT, hashResp -> {
+				if (hashResp.failed()) {
+					container.logger().warn("Could not create account, passhash operation timed out", hashResp.cause());
+					handler.handle("A hash error occurred and we are fixing it. Try again later.");
+					return;
 				}
-			);
+				switch (hashResp.result().body().getString("status")) {
+					default:
+						container.logger().warn("Could not create account, passhash error: " + hashResp.result().body().getString("message"));
+						handler.handle("A hash error occurred and we are fixing it. Try again later.");
+						break;
+					case "ok":
+						int userId = !userIdResp.right.hasNext() ? 1 : userIdResp.right.next().getValue("seq");
+						JsonObject document = new JsonObject()
+							.putNumber("_id", userId)
+							.putString("username", email)
+							.putString("password", hashResp.result().body().getString("hashed"))
+						;
+						DatabaseUtil.insert(vertx, "user", document, failHandler, insertResp -> {
+							long passwordIteration = -1; //TODO: when user changes password, update this value
+							CookieUtil.setCookie(request, "auth_session", join("~", userId, passwordIteration, Long.valueOf(System.currentTimeMillis() + 12 * 60 * 60 * 1000)));
+							handler.handle("");
+						});
+						break;
+				}
+			});
 		});
 	}
 
@@ -403,14 +405,15 @@ public class UserAuth {
 			handler.handle("A database error occurred and we are fixing it. Try again later.");
 		};
 
-		DatabaseUtil.update(vertx, "user",
-				(new JsonObject()
-					.putNumber("_id", accountId)
-				), (new JsonObject()
-					.putObject("$set", new JsonObject()
-						.putObject("login", null)
-					)
-				), failHandler, updateResp -> {
+		JsonObject query = new JsonObject()
+			.putNumber("_id", accountId)
+		;
+		JsonObject changes = new JsonObject()
+			.putObject("$set", new JsonObject()
+				.putObject("login", null)
+			)
+		;
+		DatabaseUtil.update(vertx, "user", query, changes, failHandler, updateResp -> {
 			handler.handle("");
 		});
 	}

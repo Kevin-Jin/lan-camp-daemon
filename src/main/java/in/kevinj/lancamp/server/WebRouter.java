@@ -158,7 +158,10 @@ public class WebRouter extends Verticle {
 		);
 		yoke.listen(PORT, "0.0.0.0");
 
-		DatabaseUtil.ensureIndex(vertx, "user", "username", true, new JsonObject().putNumber("username", 1), failure -> {
+		JsonObject order = new JsonObject()
+			.putNumber("username", 1)
+		;
+		DatabaseUtil.ensureIndex(vertx, "user", "username", order, true, failure -> {
 			Throwable cause = failure.getCause();
 			if (cause == null)
 				container.logger().warn("Could not initialize user collection, database error: " + failure.getMessage());

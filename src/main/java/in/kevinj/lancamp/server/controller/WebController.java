@@ -27,11 +27,12 @@ public class WebController {
 		JsonArray stats = new JsonArray();
 		markers.addString("40.8131995,-73.957643");
 		stats.addString("Your current location<br>Number of java developers within 1 mile: 0");
-		DatabaseUtil.find(vertx, "user",
-				(new JsonObject()), (new JsonObject()
-					.putNumber("location", 1)
-					.putNumber("apps", 1)
-				), error -> {
+		JsonObject query = new JsonObject();
+		JsonObject fields = new JsonObject()
+			.putNumber("location", 1)
+			.putNumber("apps", 1)
+		;
+		DatabaseUtil.find(vertx, "user", query, fields, error -> {
 			container.logger().warn("Could not get user info", error);
 			req.put("error", error.getMessage());
 			req.response().render("in.kevinj.lancamp.server.controlpanel.soy");
@@ -109,16 +110,17 @@ public class WebController {
 	}
 
 	public void controlPanelPage(YokeRequest req) {
-		DatabaseUtil.find(vertx, "user",
-				(new JsonObject()
-					.putNumber("_id", UserAuth.getCurrentUserId(req))
-				), (new JsonObject()
-					.putNumber("location", 1)
-				), error -> {
+		JsonObject query = new JsonObject()
+			.putNumber("_id", UserAuth.getCurrentUserId(req))
+		;
+		JsonObject fields = new JsonObject()
+			.putNumber("location", 1)
+		;
+		DatabaseUtil.find(vertx, "user", query, fields, error -> {
 			container.logger().warn("Could not get saved location", error);
 			req.put("error", error.getMessage());
 			req.response().render("in.kevinj.lancamp.server.controlpanel.soy");
-				}, queryResp -> {
+		}, queryResp -> {
 			String lat = "", lng = "";
 			if (queryResp.right.hasNext()) {
 				JsonObject point = queryResp.right.next().getValue("location");
@@ -144,37 +146,37 @@ public class WebController {
 
 	public void controlPanelSave(YokeRequest req) {
 		if (req.getFormParameter("changepassword") != null) {
-			
-		}
-		if (req.getFormParameter("changelocation") != null) {
+			req.put("error", "Not yet supported");
+			controlPanelPage(req);
+		} else if (req.getFormParameter("changelocation") != null) {
 			String address = req.getFormParameter("address");
 			DetailedLocation.getByAddress(vertx, container, address, (Handler<DetailedLocation>) resp -> {
 				if (resp == null || resp.lat == null || resp.lng == null) {
 					req.put("error", "'" + address + "' is not a recognized address.");
 					controlPanelPage(req);
 				} else {
-					DatabaseUtil.update(vertx, "user",
-							(new JsonObject()
-								.putNumber("_id", UserAuth.getCurrentUserId(req))
-							), (new JsonObject()
-								.putObject("$set", new JsonObject()
-									.putObject("location", new JsonObject()
-										.putString("type", "Point")
-										.putArray("coordinates", new JsonArray()
-											.addNumber(Double.parseDouble(resp.lat))
-											.addNumber(Double.parseDouble(resp.lng))
-										)
-									)
+					JsonObject query = new JsonObject()
+						.putNumber("_id", UserAuth.getCurrentUserId(req))
+					;
+					JsonObject changes = new JsonObject()
+						.putObject("$set", new JsonObject()
+							.putObject("location", new JsonObject()
+								.putString("type", "Point")
+								.putArray("coordinates", new JsonArray()
+									.addNumber(Double.parseDouble(resp.lat))
+									.addNumber(Double.parseDouble(resp.lng))
 								)
-							), error -> {
+							)
+						)
+					;
+					DatabaseUtil.update(vertx, "user", query, changes, error -> {
 						container.logger().warn("Could not save location", error);
 						req.put("error", error.getMessage());
 						controlPanelPage(req);
-							}, updateResp -> {
+					}, updateResp -> {
 						req.put("error", "Successfully updated your location.");
 						controlPanelPage(req);
-							}
-					);
+					});
 				}
 			});
 		}

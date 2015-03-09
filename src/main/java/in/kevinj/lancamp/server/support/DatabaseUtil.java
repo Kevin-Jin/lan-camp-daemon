@@ -97,44 +97,61 @@ public class DatabaseUtil {
 		}
 	}
 
-	public static void insert(Vertx vertx, String collection, JsonObject value, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void insert(Vertx vertx, String collection, JsonObject document, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
 				.putString("action", "save")
 				.putString("collection", collection)
-				.putObject("document", value)
+				.putObject("document", document)
 			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static void find(Vertx vertx, String collection, JsonObject query, JsonObject fields, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void find(Vertx vertx, String collection, JsonObject criteria, JsonObject projection, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
 				.putString("action", "find")
 				.putString("collection", collection)
-				.putObject("matcher", query)
-				.putObject("keys", fields)
+				.putObject("matcher", criteria)
+				.putObject("keys", projection)
 			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
-	public static void update(Vertx vertx, String collection, JsonObject query, JsonObject objNew, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	/**
+	 * 
+	 * @param vertx
+	 * @param collection
+	 * @param query AKA criteria
+	 * @param update
+	 * @param failure
+	 * @param success
+	 */
+	public static void update(Vertx vertx, String collection, JsonObject query, JsonObject update, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
 				.putString("action", "update")
 				.putString("collection", collection)
 				.putObject("criteria", query)
-				.putObject("objNew", objNew)
+				.putObject("objNew", update)
 			),
 			UserAuth.EBUS_TIMEOUT,
 			dbResp -> onSimpleResult(dbResp, failure, success)
 		);
 	}
 
+	/**
+	 * 
+	 * @param vertx
+	 * @param collection
+	 * @param query AKA criteria
+	 * @param failure
+	 * @param success
+	 */
 	public static void remove(Vertx vertx, String collection, JsonObject query, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
@@ -147,14 +164,25 @@ public class DatabaseUtil {
 		);
 	}
 
-	public static void findAndModify(Vertx vertx, String collection, JsonObject query, JsonObject objNew, JsonObject fields, boolean upsert, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	/**
+	 * 
+	 * @param vertx
+	 * @param collection
+	 * @param query AKA criteria
+	 * @param update
+	 * @param fields AKA projection
+	 * @param upsert
+	 * @param failure
+	 * @param success
+	 */
+	public static void findAndModify(Vertx vertx, String collection, JsonObject query, JsonObject update, JsonObject fields, boolean upsert, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
 				.putString("action", "find_and_modify")
 				.putString("collection", collection)
 				.putObject("matcher", query)
 				.putObject("fields", fields)
-				.putObject("update", objNew)
+				.putObject("update", update)
 				.putBoolean("upsert", upsert)
 			),
 			UserAuth.EBUS_TIMEOUT,
@@ -162,20 +190,23 @@ public class DatabaseUtil {
 		);
 	}
 
-	public static void ensureIndex(Vertx vertx, String collection, String name, boolean unique, JsonObject fields, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
+	public static void ensureIndex(Vertx vertx, String collection, String name, JsonObject keys, boolean unique, Handler<Throwable> failure, Handler<Pair<Message<JsonObject>, QueryResult>> success) {
 		vertx.eventBus().<JsonObject>sendWithTimeout(Boot.DB_HANDLE,
 			(new JsonObject()
 				.putString("action", "command")
-				.putString("command", /*new JsonObject()
+				.putString("command", /*new JsonObject() //version 2.6+
 					.putString("createIndexes", collection)
 					.putArray("indexes", new JsonArray()
 						.addObject(new JsonObject()
-							.putObject("key", fields)
+							.putObject("key", keys)
 							.putString("name", name)
 							.putBoolean("unique", unique)
 						)
-					).toString()*/ new JsonObject()
-					.putString("eval", "function() { return db." + collection + ".ensureIndex(" + fields.encode() + ",{ \"unique\": " + unique + " }) }")
+					).toString()*/ new JsonObject() //version < 2.6
+					.putString("eval", "function() { return db." + collection + ".ensureIndex(" + keys.toString() + "," + new JsonObject()
+						.putString("name", name)
+						.putBoolean("unique", unique)
+					.toString() + ") }")
 					.toString()
 				)
 			),

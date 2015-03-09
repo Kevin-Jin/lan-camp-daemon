@@ -3,9 +3,6 @@ package in.kevinj.lancamp.server.controller;
 import in.kevinj.lancamp.server.support.DatabaseUtil;
 import in.kevinj.lancamp.server.support.UserAuth;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import org.vertx.java.core.Vertx;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
@@ -37,9 +34,15 @@ public class ApiController {
 		});
 	}
 
-	private void updateOne(YokeRequest req, int i, JsonArray apps, Map<Integer, String> errors) {
-		if (i >= apps.size())
+	private void updateRecursive(YokeRequest req, int i, JsonArray apps, String prevError) {
+		if (i == -1) {
+			req.response().end(new JsonObject().putString("error", prevError));
 			return;
+		}
+		if (i >= apps.size()) {
+			req.response().end(new JsonObject().putString("status", "ok"));
+			return;
+		}
 
 		JsonObject app = apps.get(i);
 		if (!app.containsField("clicks"))
@@ -49,42 +52,41 @@ public class ApiController {
 		if (!app.containsField("times"))
 			app.putNumber("times", 0);
 
-		JsonObject criteria = new JsonObject()
+		JsonObject queryUpd = new JsonObject()
 			.putNumber("_id", UserAuth.getCurrentUserId(req))
 			.putString("apps.app", app.getString("app"))
 		;
-		JsonObject objNew = new JsonObject()
+		JsonObject changesUpd = new JsonObject()
 			.putObject("$inc", new JsonObject()
 				.putNumber("apps.$.clicks", app.getNumber("clicks"))
 				.putNumber("apps.$.keys", app.getNumber("keys"))
 				.putNumber("apps.$.times", app.getNumber("times"))
 			)
 		;
-		JsonObject criteria2 = new JsonObject()
+		JsonObject queryUps = new JsonObject()
 			.putNumber("_id", UserAuth.getCurrentUserId(req))
 		;
-		JsonObject objNew2 = new JsonObject()
+		JsonObject changesUps = new JsonObject()
 			.putObject("$push", new JsonObject()
 				.putObject("apps", app)
 			)
 		;
 
-		DatabaseUtil.update(vertx, "user", criteria, objNew, error -> {
+		//first try to update the embedded document, if it exists
+		DatabaseUtil.update(vertx, "user", queryUpd, changesUpd, error -> {
 			container.logger().warn("Could not save stats", error);
-			errors.put(i, error.getMessage());
+			updateRecursive(req, -1, apps, error.getMessage());
 		}, updateResp -> {
 			if (updateResp.left.body().getNumber("number").intValue() == 0) {
-				//"upsert" the embedded document
-				DatabaseUtil.update(vertx, "user", criteria2, objNew2, error -> {
+				//document does not exist. next try to "upsert" the embedded document
+				DatabaseUtil.update(vertx, "user", queryUps, changesUps, error -> {
 					container.logger().warn("Could not save stats", error);
-					errors.put(i, error.getMessage());
+					updateRecursive(req, -1, apps, error.getMessage());
 				}, updateResp2 -> {
-					errors.put(i, "");
-					updateOne(req, i + 1, apps, errors);
+					updateRecursive(req, i + 1, apps, "");
 				});
 			} else {
-				errors.put(i, "");
-				updateOne(req, i + 1, apps, errors);
+				updateRecursive(req, i + 1, apps, "");
 			}
 		});
 	}
@@ -95,14 +97,6 @@ public class ApiController {
 			return;
 		}
 		JsonObject json = req.body();
-		Map<Integer, String> errors = new HashMap<>();
-		updateOne(req, 0, json.getArray("apps"), errors);
-		for (Map.Entry<Integer, String> error : errors.entrySet()) {
-			if (!error.getValue().isEmpty()) {
-				req.response().end(new JsonObject().putString("error", error.getValue()));
-				return;
-			}
-		}
-		req.response().end(new JsonObject().putString("status", "ok"));
+		updateRecursive(req, 0, json.getArray("apps"), "");
 	}
 }
